@@ -1,0 +1,296 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    DOCKER TROUBLESHOOTING QUICK REFERENCE                    ║
+║                         Real-Time Production Guide                            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌─ FIRST RESPONSE (The Golden 30 Seconds) ──────────────────────────────────┐
+│                                                                             │
+│  1. docker ps -a | grep <container>              # Is it running or dead?  │
+│  2. docker logs --tail 50 <container>            # What does it say?       │
+│  3. docker inspect <container> --format='{{.State.ExitCode}}'  # How died? │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ SYMPTOM → COMMAND MATRIX ─────────────────────────────────────────────────┐
+│                                                                             │
+│  ❌ Won't Start:                                                            │
+│     → docker logs <container>                                              │
+│     → docker inspect <container> --format='{{.State.Error}}'               │
+│     → docker events --since 5m                                             │
+│                                                                             │
+│  💀 Keeps Crashing:                                                         │
+│     → docker logs -f <container>                                           │
+│     → docker stats --no-stream <container>                                 │
+│     → docker inspect <container> --format='{{.RestartCount}}'              │
+│     → docker inspect <container> --format='{{.State.OOMKilled}}'           │
+│                                                                             │
+│  🌐 Network Issues:                                                         │
+│     → docker exec <container> ping -c 3 google.com                         │
+│     → docker exec <container> nslookup google.com                          │
+│     → docker network inspect bridge                                        │
+│     → docker inspect <container> --format='{{.NetworkSettings.IPAddress}}' │
+│                                                                             │
+│  🚪 Port Conflicts:                                                         │
+│     → docker ps --format "table {{.Names}}\t{{.Ports}}"                    │
+│     → docker port <container>                                              │
+│     → sudo netstat -tulpn | grep :<port>                                   │
+│     → sudo lsof -i :<port>                                                 │
+│                                                                             │
+│  💾 Volume Problems:                                                        │
+│     → docker inspect <container> --format='{{json .Mounts}}' | jq          │
+│     → docker exec <container> ls -la /mount/path                           │
+│     → docker exec <container> df -h                                        │
+│     → docker volume inspect <volume>                                       │
+│                                                                             │
+│  🔐 Permission Denied:                                                      │
+│     → docker exec <container> whoami                                       │
+│     → docker exec <container> id                                           │
+│     → docker exec --user root <container> ls -la /problem/path             │
+│     → docker inspect <container> --format='User: {{.Config.User}}'         │
+│                                                                             │
+│  🔧 Config Missing:                                                         │
+│     → docker inspect <container> --format='{{range .Config.Env}}{{.}}{{"\n"}}{{end}}' │
+│     → docker exec <container> env                                          │
+│     → docker exec <container> cat /path/to/config                          │
+│                                                                             │
+│  🔥 Resource Exhaustion:                                                    │
+│     → docker stats                                                         │
+│     → docker system df                                                     │
+│     → docker inspect <container> --format='Memory: {{.HostConfig.Memory}}' │
+│     → docker top <container>                                               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ EXIT CODE DECODER ────────────────────────────────────────────────────────┐
+│                                                                             │
+│   0   ✓ Clean exit (normal)                                                │
+│   1   ✗ Application error                                                  │
+│   2   ✗ Misuse of shell command                                            │
+│  125  ✗ Docker daemon error                                                │
+│  126  ✗ Command cannot execute                                             │
+│  127  ✗ Command not found                                                  │
+│  137  ☠ OOMKilled (Out of Memory)                                          │
+│  139  ☠ Segmentation fault                                                 │
+│  143  ⚠ SIGTERM (graceful termination requested)                           │
+│  255  ✗ Exit status out of range                                           │
+│                                                                             │
+│  Get it: docker inspect <container> --format='{{.State.ExitCode}}'         │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ LOG PATTERNS TO GREP ─────────────────────────────────────────────────────┐
+│                                                                             │
+│  docker logs <container> 2>&1 | grep -i "ERROR"                            │
+│  docker logs <container> 2>&1 | grep -i "FATAL"                            │
+│  docker logs <container> 2>&1 | grep -i "Exception"                        │
+│  docker logs <container> 2>&1 | grep -i "permission denied"                │
+│  docker logs <container> 2>&1 | grep -i "connection refused"               │
+│  docker logs <container> 2>&1 | grep -i "timeout"                          │
+│  docker logs <container> 2>&1 | grep -i "no such file"                     │
+│  docker logs <container> 2>&1 | grep -i "address already in use"           │
+│  docker logs <container> 2>&1 | grep -i "cannot find module"               │
+│  docker logs <container> 2>&1 | grep -i "out of memory"                    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ INTERACTIVE DEBUGGING ────────────────────────────────────────────────────┐
+│                                                                             │
+│  # Get shell in running container                                          │
+│  docker exec -it <container> /bin/bash                                     │
+│  docker exec -it <container> /bin/sh        # if bash not available        │
+│                                                                             │
+│  # Get shell as root (fix permissions)                                     │
+│  docker exec -it --user root <container> /bin/bash                         │
+│                                                                             │
+│  # Debug stopped container (override entrypoint)                           │
+│  docker run -it --entrypoint /bin/bash <image>                             │
+│                                                                             │
+│  # Copy files for inspection                                               │
+│  docker cp <container>:/path/to/file ./local-file                          │
+│                                                                             │
+│  # See filesystem changes                                                  │
+│  docker diff <container>                                                   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ RESOURCE MONITORING ──────────────────────────────────────────────────────┐
+│                                                                             │
+│  # Real-time stats                                                         │
+│  docker stats                                                              │
+│  docker stats --no-stream <container>          # One-time snapshot         │
+│                                                                             │
+│  # Disk usage                                                              │
+│  docker system df                                                          │
+│  docker system df -v                            # Verbose                  │
+│                                                                             │
+│  # Check limits                                                            │
+│  docker inspect <container> --format='Memory: {{.HostConfig.Memory}}'      │
+│  docker inspect <container> --format='CPU: {{.HostConfig.NanoCpus}}'       │
+│                                                                             │
+│  # Processes inside container                                              │
+│  docker top <container>                                                    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ NETWORK DIAGNOSTICS ──────────────────────────────────────────────────────┐
+│                                                                             │
+│  # Check container IP                                                      │
+│  docker inspect <container> --format='{{.NetworkSettings.IPAddress}}'      │
+│                                                                             │
+│  # List all networks                                                       │
+│  docker network ls                                                         │
+│                                                                             │
+│  # Inspect network                                                         │
+│  docker network inspect bridge                                             │
+│  docker network inspect <network_name>                                     │
+│                                                                             │
+│  # Test connectivity from inside                                           │
+│  docker exec <container> ping -c 3 8.8.8.8                                 │
+│  docker exec <container> curl -I https://google.com                        │
+│  docker exec <container> netstat -tulpn                                    │
+│                                                                             │
+│  # Check DNS resolution                                                    │
+│  docker exec <container> nslookup google.com                               │
+│  docker exec <container> cat /etc/resolv.conf                              │
+│                                                                             │
+│  # Port mappings                                                           │
+│  docker port <container>                                                   │
+│  docker inspect <container> --format='{{json .NetworkSettings.Ports}}'     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ LOG COMMANDS ARSENAL ─────────────────────────────────────────────────────┐
+│                                                                             │
+│  docker logs <container>                        # All logs                 │
+│  docker logs --tail 50 <container>              # Last 50 lines            │
+│  docker logs -f <container>                     # Follow (real-time)       │
+│  docker logs -t <container>                     # With timestamps          │
+│  docker logs --since 5m <container>             # Last 5 minutes           │
+│  docker logs --since "2024-01-20T15:00:00" <container>  # Since time      │
+│  docker logs --until "2024-01-20T16:00:00" <container>  # Until time      │
+│  docker logs <container> 2>&1 > output.log     # Save to file             │
+│                                                                             │
+│  # Multi-container logs                                                    │
+│  docker-compose logs -f service1 service2                                  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ VOLUME & MOUNT INSPECTION ────────────────────────────────────────────────┐
+│                                                                             │
+│  # List all volumes                                                        │
+│  docker volume ls                                                          │
+│                                                                             │
+│  # Inspect volume                                                          │
+│  docker volume inspect <volume>                                            │
+│                                                                             │
+│  # Check mounts in container                                               │
+│  docker inspect <container> --format='{{json .Mounts}}' | jq               │
+│                                                                             │
+│  # Verify from inside container                                            │
+│  docker exec <container> df -h                                             │
+│  docker exec <container> ls -la /mount/path                                │
+│  docker exec <container> touch /mount/path/test  # Test write permission   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ ENVIRONMENT & CONFIG VERIFICATION ────────────────────────────────────────┐
+│                                                                             │
+│  # All environment variables                                               │
+│  docker inspect <container> --format='{{range .Config.Env}}{{.}}{{"\n"}}{{end}}' │
+│                                                                             │
+│  # From inside container                                                   │
+│  docker exec <container> env                                               │
+│  docker exec <container> printenv DATABASE_URL                             │
+│                                                                             │
+│  # Check config files                                                      │
+│  docker exec <container> cat /app/config.yml                               │
+│  docker exec <container> ls -la /etc/                                      │
+│                                                                             │
+│  # Verify user                                                             │
+│  docker exec <container> whoami                                            │
+│  docker exec <container> id                                                │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ PRODUCTION INCIDENT RESPONSE FLOW ────────────────────────────────────────┐
+│                                                                             │
+│  Step 1: IDENTIFY                                                          │
+│    └─→ docker ps -a | grep <service>                                       │
+│                                                                             │
+│  Step 2: LOGS                                                              │
+│    └─→ docker logs --tail 100 -t <container>                               │
+│                                                                             │
+│  Step 3: STATE                                                             │
+│    └─→ docker inspect <container> --format='{{.State.ExitCode}}'           │
+│    └─→ docker inspect <container> --format='{{.State.OOMKilled}}'          │
+│                                                                             │
+│  Step 4: RESOURCES                                                         │
+│    └─→ docker stats --no-stream <container>                                │
+│                                                                             │
+│  Step 5: CONNECTIVITY                                                      │
+│    └─→ docker exec <container> ping -c 2 <dependency>                      │
+│                                                                             │
+│  Step 6: CONFIG                                                            │
+│    └─→ docker inspect <container> | grep -A 20 "Env"                       │
+│                                                                             │
+│  Step 7: RESTORE (if needed)                                               │
+│    └─→ docker restart <container>                                          │
+│    └─→ docker-compose up -d --force-recreate <service>                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ CLEANUP & MAINTENANCE ────────────────────────────────────────────────────┐
+│                                                                             │
+│  # Remove stopped containers                                               │
+│  docker container prune                                                    │
+│                                                                             │
+│  # Remove unused images                                                    │
+│  docker image prune                                                        │
+│                                                                             │
+│  # Remove unused volumes                                                   │
+│  docker volume prune                                                       │
+│                                                                             │
+│  # Remove unused networks                                                  │
+│  docker network prune                                                      │
+│                                                                             │
+│  # Nuclear option (removes everything)                                     │
+│  docker system prune -a --volumes                                          │
+│                                                                             │
+│  # Check disk usage                                                        │
+│  docker system df                                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ ONE-LINER HEALTH CHECK SCRIPT ────────────────────────────────────────────┐
+│                                                                             │
+│  Save as: /usr/local/bin/docker-health                                     │
+│                                                                             │
+│  #!/bin/bash                                                               │
+│  c=$1                                                                      │
+│  echo "=== Status ===" && docker ps -a | grep $c && \                      │
+│  echo -e "\n=== Logs ===" && docker logs --tail 20 $c && \                 │
+│  echo -e "\n=== Stats ===" && docker stats --no-stream $c && \             │
+│  echo -e "\n=== Restarts ===" && docker inspect $c --format='{{.RestartCount}}' && \ │
+│  echo -e "\n=== Network ===" && docker inspect $c --format='{{.NetworkSettings.IPAddress}}' │
+│                                                                             │
+│  Usage: docker-health <container_name>                                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ REMEMBER ─────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│  1. Logs first - 90% of issues show up there                               │
+│  2. Check exit code - tells you how it died                                │
+│  3. Verify resources - OOMKill is common                                   │
+│  4. Test network - ping from inside container                              │
+│  5. Check permissions - common with volumes                                │
+│  6. Follow systematic approach - don't guess randomly                      │
+│                                                                             │
+│  "When in doubt, docker logs it out"                                       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  Pro Tip: Keep this reference near your terminal. The first 30 seconds of   ║
+║  troubleshooting determine whether you solve it in 5 minutes or 5 hours.    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
